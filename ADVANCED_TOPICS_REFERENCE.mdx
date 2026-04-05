@@ -1,0 +1,437 @@
+# Advanced topics reference — Currency landing (Vite + React)
+
+This document lists **advanced techniques** used in this project. Each section shows **representative code** from the repo, then **English** and **Arabic** explanations below the snippet.
+
+---
+
+## 1. Vite: path alias, Rollup `manualChunks`, Terser production cleanup
+
+**Files:** `vite.config.ts`
+
+```ts
+import path from 'node:path'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') },
+  },
+  build: {
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('@base-ui')) return 'base-ui'
+          if (id.includes('zustand')) return 'zustand'
+          if (id.includes('node_modules/react-dom')) return 'react-vendor'
+          if (id.includes('node_modules/react/')) return 'react-vendor'
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
+})
+```
+
+**English:** `@/` imports keep imports short and stable. `manualChunks` splits vendor code so browsers cache React and UI libraries separately and download them in parallel. Terser removes `console` and `debugger` in production builds. The `terser` package must be installed when using `minify: 'terser'`.
+
+**العربية:** مسار الاسم المستعار `@/` يُسهّل الاستيراد ويُثبّت المسارات. `manualChunks` يقسّم حزم `node_modules` (مثل React و`@base-ui`) لتخزين مؤقت أفضل وتحميل متوازٍ. Terser يحذف `console` و`debugger` في الإنتاج. يجب تثبيت حزمة `terser` عند استخدام `minify: 'terser'`.
+
+---
+
+## 2. TypeScript: `paths` + `baseUrl` for `@/*`
+
+**Files:** `tsconfig.app.json`
+
+```json
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+```
+
+**English:** Aligns TypeScript resolution with Vite’s `@` alias so imports like `@/components/...` type-check and jump-to-definition work in the IDE.
+
+**العربية:** يطابق إعدادات TypeScript مع alias الـ Vite حتى تعمل الاستيرادات من `@/` بدون أخطاء أنواع وتعمل ميزات المحرّك (الانتقال للتعريف).
+
+---
+
+## 3. Anti-FOUC theme script + Zustand `persist` (same storage key)
+
+**Files:** `index.html`, `src/stores/theme-store.ts`
+
+```html
+<script>
+  (function () {
+    var key = 'currency-theme'
+    var fallback = 'dark'
+    try {
+      var raw = localStorage.getItem(key)
+      var theme = fallback
+      if (raw) {
+        var p = JSON.parse(raw)
+        if (p && p.state && (p.state.theme === 'light' || p.state.theme === 'dark'))
+          theme = p.state.theme
+      }
+      document.documentElement.classList.toggle('dark', theme === 'dark')
+    } catch (e) {
+      document.documentElement.classList.add('dark')
+    }
+  })()
+</script>
+```
+
+```ts
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+export const THEME_STORAGE_KEY = 'currency-theme'
+
+export const useThemeStore = create(
+  persist(
+    (set, get) => ({
+      theme: readThemeFromStorage(),
+      setTheme: (theme) => {
+        set({ theme })
+        applyThemeToDocument(theme)
+      },
+      toggleTheme: () => {
+        const next = get().theme === 'dark' ? 'light' : 'dark'
+        get().setTheme(next)
+      },
+    }),
+    {
+      name: THEME_STORAGE_KEY,
+      partialize: (state) => ({ theme: state.theme }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.theme) applyThemeToDocument(state.theme)
+      },
+    }
+  )
+)
+```
+
+**English:** The inline script runs **before** React paints, reading the same persisted Zustand shape (`state.theme`) from `localStorage` and toggling the `.dark` class on `<html>`. That avoids a **flash of wrong theme** (FOUC). `persist` keeps the theme after refresh; `partialize` stores only `theme`; `onRehydrateStorage` reapplies the class after rehydration.
+
+**العربية:** السكربت في `<head>` يعمل **قبل** رسم React ويقرأ نفس مفتاح التخزين وبنية Zustان المخزّنة (`state.theme`) ويضبط class الوضع الداكن على `<html>` لتجنب **وميض لون خاطئ** عند التحميل. `persist` يحفظ السمة بعد التحديث؛ `partialize` يخزّن حقل السمة فقط؛ `onRehydrateStorage` يعيد تطبيق الـ class بعد إعادة التحميل من التخزين.
+
+---
+
+## 4. `React.lazy` + `Suspense` + deferred viewport loading
+
+**Files:** `src/components/currency-landing/CurrencyLanding.tsx`, `DeferredSection.tsx`
+
+```ts
+import { lazy } from 'react'
+import { DeferredSection } from './DeferredSection'
+import { HeroSection } from './HeroSection'
+
+const ServicesSection = lazy(() =>
+  import('./ServicesSection').then((m) => ({ default: m.ServicesSection }))
+)
+
+export function CurrencyLanding() {
+  return (
+    <>
+      <HeroSection />
+      <DeferredSection>
+        <ServicesSection />
+      </DeferredSection>
+    </>
+  )
+}
+```
+
+```tsx
+import { memo, Suspense, type ReactNode } from 'react'
+import { LazyWhenVisible } from './LazyWhenVisible'
+
+export const DeferredSection = memo(function DeferredSection({
+  children,
+  minHeight,
+  fallback,
+  rootMargin,
+}: {
+  children: ReactNode
+  minHeight?: string
+  fallback?: ReactNode
+  rootMargin?: string
+}) {
+  return (
+    <LazyWhenVisible minHeight={minHeight} fallback={fallback} rootMargin={rootMargin}>
+      <Suspense fallback={fallback}>{children}</Suspense>
+    </LazyWhenVisible>
+  )
+})
+```
+
+**English:** Named exports are wrapped with `lazy(() => import(...).then(({ Named }) => ({ default: Named })))`. Below-the-fold sections split into **separate JS chunks** loaded only when scrolled near (`LazyWhenVisible`) and when the chunk is ready (`Suspense`). The hero stays eager for fast first paint.
+
+**العربية:** `lazy` يقسّم الأقسام إلى **ملفات جافاسكربت منفصلة**. `DeferredSection` يجمع بين التحميل عند الاقتراب من الشاشة (`LazyWhenVisible`) وبين انتظار الجزء (`Suspense`). القسم الأول (Hero) يُحمَّل مباشرة لتحسين أول عرض.
+
+---
+
+## 5. Shared `IntersectionObserver` (one observer per `rootMargin`)
+
+**Files:** `src/lib/observe-intersection.ts`
+
+```ts
+const callbacks = new Map<Element, () => void>()
+const observers = new Map<string, IntersectionObserver>()
+
+function getOrCreateObserver(rootMargin: string): IntersectionObserver {
+  const cached = observers.get(rootMargin)
+  if (cached) return cached
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue
+        const el = entry.target
+        const cb = callbacks.get(el)
+        if (!cb) continue
+        observer.unobserve(el)
+        callbacks.delete(el)
+        cb()
+      }
+    },
+    { root: null, rootMargin, threshold: 0 }
+  )
+  observers.set(rootMargin, observer)
+  return observer
+}
+
+export function subscribeIntersection(
+  element: Element,
+  rootMargin: string,
+  onIntersect: () => void
+): () => void {
+  const io = getOrCreateObserver(rootMargin)
+  callbacks.set(element, onIntersect)
+  io.observe(element)
+  return () => {
+    io.unobserve(element)
+    callbacks.delete(element)
+  }
+}
+```
+
+**English:** Instead of creating one `IntersectionObserver` per section, this pattern reuses **one observer per `rootMargin`**, maps elements to callbacks, and disconnects per target after the first intersection. That reduces memory and main-thread work.
+
+**العربية:** بدل إنشاء مراقب لكل قسم، يُعاد استخدام **مراقب واحد لكل قيمة `rootMargin`** مع خريطة عناصر→دوال، ويُلغى ربط العنصر بعد أول تقاطع. يقلّل استهلاك الذاكرة والعمل على الخيط الرئيسي.
+
+---
+
+## 6. `content-visibility`, `contain-intrinsic-size`, reserved `minHeight` (CLS)
+
+**Files:** `src/components/currency-landing/LazyWhenVisible.tsx`
+
+```tsx
+return (
+  <div
+    ref={ref}
+    style={{
+      minHeight: visible ? undefined : minHeight,
+      contentVisibility: visible ? undefined : 'auto',
+      containIntrinsicSize: visible ? undefined : '480px',
+    }}
+    data-lazy-root={visible ? 'ready' : 'pending'}
+  >
+    {visible ? children : (fallback ?? <SectionSkeleton />)}
+  </div>
+)
+```
+
+**English:** Before the section mounts, a **minimum height** and `content-visibility: auto` hint to the browser that off-screen content can be skipped for layout/paint work; `contain-intrinsic-size` gives an estimated size so scrollbars stay stable. Together with the skeleton, this **limits cumulative layout shift (CLS)**.
+
+**العربية:** قبل تركيب المحتوى، يُحجز ارتفاع تقريبي ويُستخدم `content-visibility: auto` ليقلّل عمل التخطيط/الرسم للعناصر خارج الشاشة، و`containIntrinsicSize` يعطي حجماً تقديرياً للاستقرار. مع الهيكل البديل (skeleton) يُقلّل **تحرك التخطيط أثناء التحميل (CLS)**.
+
+---
+
+## 7. Memoized skeleton placeholder + accessibility
+
+**Files:** `src/components/currency-landing/SectionSkeleton.tsx`
+
+```tsx
+import { memo } from 'react'
+
+export const SectionSkeleton = memo(function SectionSkeleton({ className }: { className?: string }) {
+  return (
+    <div role="status" aria-label="Loading section" className={/* pulse styles */}>
+      {/* placeholder bars */}
+    </div>
+  )
+})
+```
+
+**English:** `memo` avoids re-rendering the same placeholder when parents update. `role="status"` and `aria-label` expose a **loading state** to assistive technologies.
+
+**العربية:** `memo` يقلّل إعادة الرسم غير الضرورية. `role="status"` و`aria-label` يخبران قارئ الشاشة أن القسم ما زال يُحمَّل.
+
+---
+
+## 8. Theme toggle: accessible button state
+
+**Files:** `src/components/ThemeToggle.tsx`
+
+```tsx
+<Button
+  type="button"
+  onClick={toggleTheme}
+  aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+  aria-pressed={isDark}
+>
+  {isDark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
+</Button>
+```
+
+**English:** `aria-label` describes the **next** action; `aria-pressed` reflects toggle state; icons are `aria-hidden` because the button label is textual. This follows a **toggle button** pattern for screen readers.
+
+**العربية:** `aria-label` يصف الإجراء؛ `aria-pressed` يعكس حالة التبديل؛ الأيقونات مخفية عن قارئ الشاشة لأن الزر له نص معنوي. هذا نمط **زر تبديل (toggle)** متاح.
+
+---
+
+## 9. Sticky header: backdrop blur with feature detection
+
+**Files:** `src/components/currency-landing/SiteHeader.tsx`
+
+```tsx
+<header className="sticky top-0 z-50 border-b border-border/80 bg-background/85 backdrop-blur-sm supports-[backdrop-filter]:bg-background/70">
+```
+
+**English:** `supports-[backdrop-filter]` lowers background opacity only when `backdrop-filter` works, avoiding illegible headers on browsers that ignore blur. `sticky` keeps navigation visible while scrolling.
+
+**العربية:** `supports-[backdrop-filter]` يضبط الشفافية عند دعم الضبابية فقط لتفادي صعوبة القراءة. `sticky` يُبقي التنقل ظاهراً أثناء التمرير.
+
+---
+
+## 10. CSS: Tailwind v4 `@theme`, OKLCH palette, conditional smooth scroll
+
+**Files:** `src/index.css`
+
+```css
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+}
+
+.dark {
+  --background: oklch(0.14 0.02 250);
+  --foreground: oklch(0.985 0 0);
+}
+
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+}
+```
+
+**English:** Tailwind v4 `@theme` registers design tokens. **System font stacks** avoid extra font downloads (better **FCP**). **OKLCH** gives perceptually smooth light/dark palettes. Smooth scrolling is **only** applied when the user has not requested reduced motion (`prefers-reduced-motion`).
+
+**العربية:** `@theme` يعرّف رموز التصميم. خطوط النظام تتجنب تنزيل خطوط إضافية (تحسين **FCP**). **OKLCH** يعطي ألواناً متسقة بين الوضعين. التمرير السلس يُفعَّل فقط عندما لا يطلب المستخدم تقليل الحركة.
+
+---
+
+## 11. Utility merging: `clsx` + `tailwind-merge`
+
+**Files:** `src/lib/utils.ts`
+
+```ts
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+```
+
+**English:** `clsx` builds conditional class strings; `twMerge` resolves **Tailwind conflicts** (e.g. `p-2` vs `p-4`) so the last sensible utility wins—essential for Shadcn-style components.
+
+**العربية:** `clsx` يجمع الأصناف الشرطية؛ `twMerge` يحل **تعارضات Tailwind** بحيث تفوز القيمة الأنسب—مهم لمكوّنات Shadcn.
+
+---
+
+## 12. Semantic HTML in sections (examples)
+
+**Files:** `FAQSection.tsx` (`details`/`summary`), `BlogSection.tsx` (`article`/`time`), `ContactSection.tsx` (`address`)
+
+```tsx
+<details className="...">
+  <summary className="...">Question text</summary>
+  <p>Answer text</p>
+</details>
+```
+
+```tsx
+<article key={post.title}>
+  <time dateTime={post.date}>{post.label}</time>
+</article>
+```
+
+```tsx
+<address className="not-italic ...">Company · City</address>
+```
+
+**English:** Native elements improve **accessibility**, **SEO**, and default keyboard behavior without extra ARIA where semantics already exist.
+
+**العربية:** العناصر الدلالية تُحسّن **إتاحة الوصول** و**SEO** والتنقل بلوحة المفاتيح دون إفراط في ARIA حيث الدلالة كافية.
+
+---
+
+## 13. Entry: `StrictMode` + client `createRoot`
+
+**Files:** `src/main.tsx`
+
+```tsx
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+)
+```
+
+**English:** React 18 root API enables concurrent features. `StrictMode` double-invokes certain lifecycles in development to surface side-effect bugs (no effect in production builds).
+
+**العربية:** واجهة React 18 لإنشاء الجذر تدعم الميزات الحديثة. `StrictMode` في التطوير يعيد استدعاء بعض الدورات لكشف الأخطاء (لا يؤثر في إنتاج البناء النهائي).
+
+---
+
+### File map (quick reference)
+
+| Area            | Main files |
+|-----------------|------------|
+| Build & chunks  | `vite.config.ts` |
+| TS paths        | `tsconfig.app.json`, `vite.config.ts` |
+| Theme           | `index.html`, `src/stores/theme-store.ts`, `ThemeToggle.tsx` |
+| Lazy loading    | `CurrencyLanding.tsx`, `DeferredSection.tsx`, `LazyWhenVisible.tsx`, `SectionSkeleton.tsx` |
+| Intersection IO | `src/lib/observe-intersection.ts` |
+| Styles / a11y   | `src/index.css`, `SiteHeader.tsx` |
+| Utils           | `src/lib/utils.ts` |
+| App shell       | `src/main.tsx`, `src/App.tsx` |
+
+---
+
+*Generated to match the current project layout. Update snippets if source files change.*

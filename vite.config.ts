@@ -11,4 +11,26 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('@base-ui')) return 'base-ui'
+          if (id.includes('zustand')) return 'zustand'
+          if (id.includes('node_modules/react-dom')) return 'react-vendor'
+          if (id.includes('node_modules/react/')) return 'react-vendor'
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
+  base: '/currencyLanding/',
 })

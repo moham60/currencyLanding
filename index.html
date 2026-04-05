@@ -4,7 +4,29 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>test</title>
+    <meta
+      name="description"
+      content="Currency unifies treasury, FX, and compliance for finance teams—multi-currency accounts, hedging analytics, and automated workflows."
+    />
+    <title>Currency — Treasury & FX for modern teams</title>
+    <script>
+      (function () {
+        var key = 'currency-theme'
+        var fallback = 'dark'
+        try {
+          var raw = localStorage.getItem(key)
+          var theme = fallback
+          if (raw) {
+            var p = JSON.parse(raw)
+            if (p && p.state && (p.state.theme === 'light' || p.state.theme === 'dark'))
+              theme = p.state.theme
+          }
+          document.documentElement.classList.toggle('dark', theme === 'dark')
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

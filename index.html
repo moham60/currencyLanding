@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Currency unifies treasury, FX, and compliance for finance teams—multi-currency accounts, hedging analytics, and automated workflows."
+    />
+    <title>Currency — Treasury & FX for modern teams</title>
+    <script>
+      (function () {
+        var key = 'currency-theme'
+        var fallback = 'dark'
+        try {
+          var raw = localStorage.getItem(key)
+          var theme = fallback
+          if (raw) {
+            var p = JSON.parse(raw)
+            if (p && p.state && (p.state.theme === 'light' || p.state.theme === 'dark'))
+              theme = p.state.theme
+          }
+          document.documentElement.classList.toggle('dark', theme === 'dark')
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/assets/index-hpWl-4Uh.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-297CnYNL.js">
+    <link rel="modulepreload" crossorigin href="/assets/base-ui-xikWbPpw.js">
+    <link rel="modulepreload" crossorigin href="/assets/utils-kdMHb_8m.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-vendor-C8Rvz51-.js">
+    <link rel="modulepreload" crossorigin href="/assets/zustand-CPdd0AJO.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DyjhbGD2.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
